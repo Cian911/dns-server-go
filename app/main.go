@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	// Uncomment this block to pass the first stage
 	"net"
 )
 
@@ -35,12 +34,12 @@ func main() {
 		receivedData := string(buf[:size])
 		fmt.Printf("Received %d bytes from %s: %s\n", size, source, receivedData)
 
-    // TODO: Pass receivedData to custom function to interpret
+		// TODO: Pass receivedData to custom function to interpret
+		m := NewQuery()
 
 		// Create an empty response
-		response := []byte{}
 
-		_, err = udpConn.WriteToUDP(response, source)
+		_, err = udpConn.WriteToUDP(m.Bytes(), source)
 		if err != nil {
 			fmt.Println("Failed to send response:", err)
 		}
