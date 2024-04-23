@@ -35,6 +35,8 @@ func main() {
 		receivedData := string(buf[:size])
 		fmt.Printf("Received %d bytes from %s: %s\n", size, source, receivedData)
 
+    // TODO: Pass receivedData to custom function to interpret
+
 		// Create an empty response
 		response := []byte{}
 
