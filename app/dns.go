@@ -5,8 +5,9 @@ import (
 )
 
 type Message struct {
-	Header   Header
-	Question []Question
+	Header         Header
+	Question       []Question
+	ResourceRecord []ResourceRecord
 }
 
 /*
@@ -34,6 +35,15 @@ type Question struct {
 	Class uint16 // 2-byte int; usually set to 1, for "IN"
 }
 
+type ResourceRecord struct {
+	Name     []byte // A domain name, represented as a suqeuence of "labels"
+	Type     uint16 // 2-byte int; the type of record (1 for A record, 5 for CNAME)
+	Class    uint16 // 2-byte int; usually set to 1, for "IN"
+	TTL      uint32 // The duration in seconds a record can be cached before requerying.
+	RDLENGTH uint16 // Length of the RDATA field
+	RDATA    []byte // Data specific to the record type, such as an IPv4 address
+}
+
 func NewQuery() *Message {
 	return &Message{
 		Header: Header{
@@ -47,7 +57,7 @@ func NewQuery() *Message {
 			Z:       0,
 			RCODE:   0,
 			QDCOUNT: 1,
-			ANCOUNT: 0,
+			ANCOUNT: 1,
 			NSCOUNT: 0,
 			ARCOUNT: 0,
 		},
@@ -58,6 +68,16 @@ func NewQuery() *Message {
 				Class: 1,
 			},
 		},
+		ResourceRecord: []ResourceRecord{
+			{
+				Name:     []byte("\x0ccodecrafters\x02io\x00"),
+				Type:     1,
+				Class:    1,
+				TTL:      60,
+				RDLENGTH: 4,
+				RDATA:    []byte("\x08\x08\x08\x08"),
+			},
+		},
 	}
 }
 
@@ -66,9 +86,11 @@ func (m *Message) Bytes() []byte {
 	for _, question := range m.Question {
 		response = append(response, question.Bytes()...)
 	}
+	for _, rr := range m.ResourceRecord {
+		response = append(response, rr.Bytes()...)
+	}
 
 	return response
-	// return append(m.Header.Bytes(), []byte{}...)
 }
 
 func (h *Header) Bytes() []byte {
@@ -99,4 +121,25 @@ func (q *Question) Bytes() []byte {
 	binary.BigEndian.PutUint16(c, q.Class)
 
 	return append(append(q.Name, t...), c...)
+}
+
+func (rr *ResourceRecord) Bytes() []byte {
+	var buf []byte
+	t := make([]byte, 2)
+	binary.BigEndian.PutUint16(t, rr.Type)
+	c := make([]byte, 2)
+	binary.BigEndian.PutUint16(c, rr.Class)
+	ttl := make([]byte, 4)
+	binary.BigEndian.PutUint32(ttl, rr.TTL)
+	l := make([]byte, 2)
+	binary.BigEndian.PutUint16(l, rr.RDLENGTH)
+
+	buf = append(buf, rr.Name...)
+	buf = append(buf, t...)
+	buf = append(buf, c...)
+	buf = append(buf, ttl...)
+	buf = append(buf, l...)
+	buf = append(buf, rr.RDATA...)
+
+	return buf
 }
