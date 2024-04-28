@@ -34,8 +34,7 @@ func main() {
 		receivedData := string(buf[:size])
 		fmt.Printf("Received %d bytes from %s: %s\n", size, source, receivedData)
 
-		// TODO: Pass receivedData to custom function to interpret
-		m := NewQuery()
+		m := NewQuery(buf[:size])
 
 		// Create an empty response
 

@@ -44,18 +44,18 @@ type ResourceRecord struct {
 	RDATA    []byte // Data specific to the record type, such as an IPv4 address
 }
 
-func NewQuery() *Message {
+func NewQuery(receivedData []byte) *Message {
 	return &Message{
 		Header: Header{
-			ID:      1234,
+			ID:      binary.BigEndian.Uint16(receivedData[0:2]),
 			QR:      1,
-			OPCODE:  0,
+			OPCODE:  uint8(binary.BigEndian.Uint16(receivedData[2:4]) >> 11),
 			AA:      0,
 			TC:      0,
-			RD:      0,
+			RD:      uint8(binary.BigEndian.Uint16(receivedData[2:4]) >> 8),
 			RA:      0,
 			Z:       0,
-			RCODE:   0,
+			RCODE:   4,
 			QDCOUNT: 1,
 			ANCOUNT: 1,
 			NSCOUNT: 0,
