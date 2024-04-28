@@ -2,12 +2,15 @@ package main
 
 import (
 	"encoding/binary"
+	"fmt"
+	"strings"
 )
 
 type Message struct {
 	Header         Header
 	Question       []Question
 	ResourceRecord []ResourceRecord
+	Answer         []Answer
 }
 
 /*
@@ -33,6 +36,15 @@ type Question struct {
 	Name  []byte // A domain name, represented as a suqeuence of "labels"
 	Type  uint16 // 2-byte int; the type of record (1 for A record, 5 for CNAME)
 	Class uint16 // 2-byte int; usually set to 1, for "IN"
+}
+
+type Answer struct {
+	Name     []byte // A domain name, represented as a suqeuence of "labels"
+	Type     uint16 // 2-byte int; the type of record (1 for A record, 5 for CNAME)
+	Class    uint16 // 2-byte int; usually set to 1, for "IN"
+	TTL      uint32 // The duration in seconds a record can be cached before requerying.
+	RDLENGTH uint16 // Length of the RDATA field
+	RDATA    []byte // Data specific to the record type, such as an IPv4 address
 }
 
 type ResourceRecord struct {
@@ -63,14 +75,24 @@ func NewQuery(receivedData []byte) *Message {
 		},
 		Question: []Question{
 			{
-				Name:  []byte("\x0ccodecrafters\x02io\x00"),
+				Name:  ParseDomain(receivedData),
 				Type:  1,
 				Class: 1,
 			},
 		},
 		ResourceRecord: []ResourceRecord{
 			{
-				Name:     []byte("\x0ccodecrafters\x02io\x00"),
+				Name:     ParseDomain(receivedData),
+				Type:     1,
+				Class:    1,
+				TTL:      60,
+				RDLENGTH: 4,
+				RDATA:    []byte("\x08\x08\x08\x08"),
+			},
+		},
+		Answer: []Answer{
+			{
+				Name:     ParseDomain(receivedData),
 				Type:     1,
 				Class:    1,
 				TTL:      60,
@@ -88,6 +110,9 @@ func (m *Message) Bytes() []byte {
 	}
 	for _, rr := range m.ResourceRecord {
 		response = append(response, rr.Bytes()...)
+	}
+	for _, a := range m.Answer {
+		response = append(response, a.Bytes()...)
 	}
 
 	return response
@@ -142,4 +167,45 @@ func (rr *ResourceRecord) Bytes() []byte {
 	buf = append(buf, rr.RDATA...)
 
 	return buf
+}
+
+func (a *Answer) Bytes() []byte {
+	var buf []byte
+	t := make([]byte, 2)
+	binary.BigEndian.PutUint16(t, a.Type)
+	c := make([]byte, 2)
+	binary.BigEndian.PutUint16(c, a.Class)
+	ttl := make([]byte, 4)
+	binary.BigEndian.PutUint32(ttl, a.TTL)
+	l := make([]byte, 2)
+	binary.BigEndian.PutUint16(l, a.RDLENGTH)
+
+	buf = append(buf, a.Name...)
+	buf = append(buf, t...)
+	buf = append(buf, c...)
+	buf = append(buf, ttl...)
+	buf = append(buf, l...)
+	buf = append(buf, a.RDATA...)
+
+	return buf
+}
+
+func ParseDomain(data []byte) []byte {
+	var encoded string
+	nullIndex := strings.Index(string(data), "\x00")
+	domainByte := data[nullIndex:]
+	fmt.Printf("DBYTE: %s\n", string(domainByte))
+	// []byte("\x0ccodecrafters\x02io\x00")
+	segments := strings.Split(string(domainByte), ".")
+	for _, segment := range segments {
+		// Append length as hexadecimal format
+		encoded := fmt.Sprintf("\\x%02x", len(segment))
+		encoded += segment
+	}
+
+	// Add null terminator
+	encoded += "\\x00"
+	fmt.Printf("ENCODED: %s - Index: %d\n", encoded, nullIndex)
+
+	return []byte(encoded)
 }
