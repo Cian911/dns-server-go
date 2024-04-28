@@ -2,10 +2,13 @@ package main
 
 import (
 	"encoding/binary"
+	"fmt"
+	"strings"
 )
 
 type Message struct {
-	Header Header
+	Header   Header
+	Question []Question
 }
 
 /*
@@ -27,6 +30,12 @@ type Header struct {
 	ARCOUNT uint16 // Additional record count
 }
 
+type Question struct {
+	Name  string // A domain name, represented as a suqeuence of "labels"
+	Type  uint8  // 2-byte int; the type of record (1 for A record, 5 for CNAME)
+	Class uint8  // 2-byte int; usually set to 1, for "IN"
+}
+
 func NewQuery() *Message {
 	return &Message{
 		Header: Header{
@@ -39,16 +48,29 @@ func NewQuery() *Message {
 			RA:      0,
 			Z:       0,
 			RCODE:   0,
-			QDCOUNT: 0,
+			QDCOUNT: 1234,
 			ANCOUNT: 0,
 			NSCOUNT: 0,
 			ARCOUNT: 0,
+		},
+		Question: []Question{
+			{
+				Name:  EncodeDomain("codecrafters.io"),
+				Type:  1,
+				Class: 1,
+			},
 		},
 	}
 }
 
 func (m *Message) Bytes() []byte {
-	return append(m.Header.Bytes(), []byte{}...)
+	response := m.Header.Bytes()
+	for _, question := range m.Question {
+		response = append(response, question.Bytes()...)
+	}
+
+	return response
+	// return append(m.Header.Bytes(), []byte{}...)
 }
 
 func (h *Header) Bytes() []byte {
@@ -70,4 +92,18 @@ func (h *Header) Bytes() []byte {
 	binary.BigEndian.PutUint16(buf[10:12], h.ARCOUNT)
 
 	return buf
+}
+
+func (q *Question) Bytes() []byte {
+	t := make([]byte, 2)
+	binary.BigEndian.PutUint16(t, uint16(q.Type))
+	c := make([]byte, 2)
+	binary.BigEndian.PutUint16(c, uint16(q.Class))
+
+	return append(append([]byte(q.Name), t...), c...)
+}
+
+func EncodeDomain(domain string) string {
+	domainSpl := strings.Split(domain, ".")
+	return fmt.Sprintf("%d%s%d%s\x00", len(domainSpl[0]), domainSpl[0], len(domainSpl[1]), domainSpl[1])
 }
