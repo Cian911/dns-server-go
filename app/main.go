@@ -37,7 +37,6 @@ func main() {
 		m := NewQuery(buf[:size])
 
 		// Create an empty response
-
 		_, err = udpConn.WriteToUDP(m.Bytes(), source)
 		if err != nil {
 			fmt.Println("Failed to send response:", err)

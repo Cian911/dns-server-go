@@ -191,21 +191,35 @@ func (a *Answer) Bytes() []byte {
 }
 
 func ParseDomain(data []byte) []byte {
-	var encoded string
-	nullIndex := strings.Index(string(data), "\x00")
-	domainByte := data[nullIndex:]
-	fmt.Printf("DBYTE: %s\n", string(domainByte))
-	// []byte("\x0ccodecrafters\x02io\x00")
-	segments := strings.Split(string(domainByte), ".")
+	domainByte := data[12:]
+	domain := decodeDNSPacket(domainByte)
+
+	segments := strings.Split(domain, ".")
+	var encodedDomain []byte
 	for _, segment := range segments {
-		// Append length as hexadecimal format
-		encoded := fmt.Sprintf("\\x%02x", len(segment))
-		encoded += segment
+		encodedDomain = append(encodedDomain, byte(len(segment)))
+		encodedDomain = append(encodedDomain, []byte(segment)...)
 	}
 
-	// Add null terminator
-	encoded += "\\x00"
-	fmt.Printf("ENCODED: %s - Index: %d\n", encoded, nullIndex)
+	// Terminate with null byte
+	encodedDomain = append(encodedDomain, 0x00)
+	return encodedDomain
+}
 
-	return []byte(encoded)
+func decodeDNSPacket(packet []byte) string {
+	var domain string
+	i := 0
+	for i < len(packet) && packet[i] != 0 {
+		labelLength := int(packet[i])
+		i++
+		if i+labelLength > len(packet) {
+			break
+		}
+		domain += string(packet[i : i+labelLength])
+		i += labelLength
+		if i < len(packet) && packet[i] != 0 {
+			domain += "."
+		}
+	}
+	return domain
 }
