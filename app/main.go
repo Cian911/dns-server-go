@@ -3,13 +3,21 @@ package main
 import (
 	"fmt"
 	"net"
+	"os"
 )
 
 func main() {
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
 	fmt.Println("Logs from your program will appear here!")
+	addr := "127.0.0.1:2053"
 
-	udpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:2053")
+	if len(os.Args) > 1 && os.Args[1] == "--resolver" && os.Args[2] != "" {
+		addr = os.Args[2]
+	}
+
+	fmt.Printf("Address is %s\n", addr)
+
+	udpAddr, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
 		fmt.Println("Failed to resolve UDP address:", err)
 		return
