@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"fmt"
 	"strings"
 )
 
@@ -56,6 +57,29 @@ type ResourceRecord struct {
 }
 
 func NewQuery(receivedData []byte) *Message {
+	questions := make([]Question, 0)
+	answers := make([]Answer, 0)
+	for i := 0; i < int(binary.BigEndian.Uint16(receivedData[4:6])); i++ {
+		answer := Answer{
+			Name:     ParseDomain(receivedData),
+			Type:     1,
+			Class:    1,
+			TTL:      60,
+			RDLENGTH: 4,
+			RDATA:    []byte("\x08\x08\x08\x08"),
+		}
+		answers = append(answers, answer)
+	}
+	for i := 0; i < int(binary.BigEndian.Uint16(receivedData[4:6])); i++ {
+		question := Question{
+			Name:  ParseDomain(receivedData),
+			Type:  1,
+			Class: 1,
+		}
+
+		questions = append(questions, question)
+	}
+
 	return &Message{
 		Header: Header{
 			ID:      binary.BigEndian.Uint16(receivedData[0:2]),
@@ -67,18 +91,12 @@ func NewQuery(receivedData []byte) *Message {
 			RA:      0,
 			Z:       0,
 			RCODE:   4,
-			QDCOUNT: 1,
-			ANCOUNT: 1,
+			QDCOUNT: uint16(binary.BigEndian.Uint16(receivedData[4:6])),
+			ANCOUNT: uint16(binary.BigEndian.Uint16(receivedData[4:6])),
 			NSCOUNT: 0,
 			ARCOUNT: 0,
 		},
-		Question: []Question{
-			{
-				Name:  ParseDomain(receivedData),
-				Type:  1,
-				Class: 1,
-			},
-		},
+		Question: questions,
 		ResourceRecord: []ResourceRecord{
 			{
 				Name:     ParseDomain(receivedData),
@@ -89,16 +107,7 @@ func NewQuery(receivedData []byte) *Message {
 				RDATA:    []byte("\x08\x08\x08\x08"),
 			},
 		},
-		Answer: []Answer{
-			{
-				Name:     ParseDomain(receivedData),
-				Type:     1,
-				Class:    1,
-				TTL:      60,
-				RDLENGTH: 4,
-				RDATA:    []byte("\x08\x08\x08\x08"),
-			},
-		},
+		Answer: answers,
 	}
 }
 
