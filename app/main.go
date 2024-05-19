@@ -10,12 +10,13 @@ func main() {
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
 	fmt.Println("Logs from your program will appear here!")
 	addr := "127.0.0.1:2053"
+	resolver := ""
 
 	if len(os.Args) > 1 && os.Args[1] == "--resolver" && os.Args[2] != "" {
-		addr = os.Args[2]
+		resolver = os.Args[2]
 	}
 
-	fmt.Printf("Address is %s\n", addr)
+	fmt.Printf("Resolver is %s\n", resolver)
 
 	udpAddr, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
