@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/binary"
-	"strings"
+	"fmt"
 )
 
 type Message struct {
@@ -56,57 +56,68 @@ type ResourceRecord struct {
 }
 
 func NewQuery(receivedData []byte) *Message {
+	offset := 12
 	questions := make([]Question, 0)
 	answers := make([]Answer, 0)
-	for i := 0; i < int(binary.BigEndian.Uint16(receivedData[4:6])); i++ {
-		answer := Answer{
-			Name:     ParseDomain(receivedData),
-			Type:     1,
-			Class:    1,
-			TTL:      60,
-			RDLENGTH: 4,
-			RDATA:    []byte("\x08\x08\x08\x08"),
-		}
-		answers = append(answers, answer)
-	}
-	for i := 0; i < int(binary.BigEndian.Uint16(receivedData[4:6])); i++ {
+
+	questionCount := int(binary.BigEndian.Uint16(receivedData[4:6]))
+	answerCount := int(binary.BigEndian.Uint16(receivedData[6:8]))
+
+	for i := 0; i < questionCount; i++ {
+		name, nextOffset := ParseDomain(receivedData, offset)
+		offset = nextOffset + 4
 		question := Question{
-			Name:  ParseDomain(receivedData),
-			Type:  1,
-			Class: 1,
+			Name:  name,
+			Type:  binary.BigEndian.Uint16(receivedData[nextOffset : nextOffset+2]),
+			Class: binary.BigEndian.Uint16(receivedData[nextOffset+2 : nextOffset+4]),
+		}
+		questions = append(questions, question)
+	}
+
+	for i := 0; i < answerCount; i++ {
+		name, nextOffset := ParseDomain(receivedData, offset)
+		offset = nextOffset
+		answer := Answer{
+			Name:     name,
+			Type:     binary.BigEndian.Uint16(receivedData[offset : offset+2]),
+			Class:    binary.BigEndian.Uint16(receivedData[offset+2 : offset+4]),
+			TTL:      binary.BigEndian.Uint32(receivedData[offset+4 : offset+8]),
+			RDLENGTH: binary.BigEndian.Uint16(receivedData[offset+8 : offset+10]),
 		}
 
-		questions = append(questions, question)
+		fmt.Printf("Name: %s, Type: %d, Class: %d, TTL: %d, RDLENGTH: %d\n", formatDomainName(answer.Name), answer.Type, answer.Class, answer.TTL, answer.RDLENGTH)
+
+		offset += 10
+
+		// if offset+int(answer.RDLENGTH) > len(receivedData) {
+		// 	log.Fatalf("RDLENGTH too large, cannot slice: offset=%d, RDLENGTH=%d, len(receivedData)=%d", offset, answer.RDLENGTH, len(receivedData))
+		// }
+
+		answer.RDATA = receivedData[offset : offset+int(answer.RDLENGTH)]
+		fmt.Printf("RDATA: %v\n", answer.RDATA)
+
+		offset += int(answer.RDLENGTH)
+		answers = append(answers, answer)
 	}
 
 	return &Message{
 		Header: Header{
 			ID:      binary.BigEndian.Uint16(receivedData[0:2]),
-			QR:      1,
-			OPCODE:  uint8(binary.BigEndian.Uint16(receivedData[2:4]) >> 11),
-			AA:      0,
-			TC:      0,
-			RD:      uint8(binary.BigEndian.Uint16(receivedData[2:4]) >> 8),
-			RA:      0,
-			Z:       0,
-			RCODE:   4,
-			QDCOUNT: uint16(binary.BigEndian.Uint16(receivedData[4:6])),
-			ANCOUNT: uint16(binary.BigEndian.Uint16(receivedData[4:6])),
-			NSCOUNT: 0,
-			ARCOUNT: 0,
+			QR:      (receivedData[2] >> 7) & 0x1,
+			OPCODE:  (receivedData[2] >> 3) & 0xf,
+			AA:      (receivedData[2] >> 2) & 0x1,
+			TC:      (receivedData[2] >> 1) & 0x1,
+			RD:      receivedData[2] & 0x1,
+			RA:      (receivedData[3] >> 7) & 0x1,
+			Z:       (receivedData[3] >> 4) & 0x7,
+			RCODE:   receivedData[3] & 0xf,
+			QDCOUNT: binary.BigEndian.Uint16(receivedData[4:6]),
+			ANCOUNT: binary.BigEndian.Uint16(receivedData[6:8]),
+			NSCOUNT: binary.BigEndian.Uint16(receivedData[8:10]),
+			ARCOUNT: binary.BigEndian.Uint16(receivedData[10:12]),
 		},
 		Question: questions,
-		ResourceRecord: []ResourceRecord{
-			{
-				Name:     ParseDomain(receivedData),
-				Type:     1,
-				Class:    1,
-				TTL:      60,
-				RDLENGTH: 4,
-				RDATA:    []byte("\x08\x08\x08\x08"),
-			},
-		},
-		Answer: answers,
+		Answer:   answers,
 	}
 }
 
@@ -115,118 +126,86 @@ func (m *Message) Bytes() []byte {
 	for _, question := range m.Question {
 		response = append(response, question.Bytes()...)
 	}
-	for _, rr := range m.ResourceRecord {
-		response = append(response, rr.Bytes()...)
-	}
 	for _, a := range m.Answer {
 		response = append(response, a.Bytes()...)
 	}
-
 	return response
 }
 
 func (h *Header) Bytes() []byte {
-	// Header Message is 12 bytes long
 	buf := make([]byte, 12)
 	binary.BigEndian.PutUint16(buf[0:2], h.ID)
-	flag := uint16(h.QR)<<15 |
-		uint16(h.OPCODE)<<11 |
-		uint16(h.AA)<<10 |
-		uint16(h.TC)<<9 |
-		uint16(h.RD)<<8 |
-		uint16(h.RA)<<7 |
-		uint16(h.Z)<<4 |
-		uint16(h.RCODE)
-	binary.BigEndian.PutUint16(buf[2:4], flag)
+	buf[2] = (h.QR << 7) | (h.OPCODE << 3) | (h.AA << 2) | (h.TC << 1) | h.RD
+	buf[3] = (h.RA << 7) | (h.Z << 4) | h.RCODE
 	binary.BigEndian.PutUint16(buf[4:6], h.QDCOUNT)
 	binary.BigEndian.PutUint16(buf[6:8], h.ANCOUNT)
 	binary.BigEndian.PutUint16(buf[8:10], h.NSCOUNT)
 	binary.BigEndian.PutUint16(buf[10:12], h.ARCOUNT)
-
 	return buf
 }
 
 func (q *Question) Bytes() []byte {
+	buf := append([]byte{}, q.Name...)
 	t := make([]byte, 2)
 	binary.BigEndian.PutUint16(t, q.Type)
+	buf = append(buf, t...)
 	c := make([]byte, 2)
 	binary.BigEndian.PutUint16(c, q.Class)
-
-	return append(append(q.Name, t...), c...)
-}
-
-func (rr *ResourceRecord) Bytes() []byte {
-	var buf []byte
-	t := make([]byte, 2)
-	binary.BigEndian.PutUint16(t, rr.Type)
-	c := make([]byte, 2)
-	binary.BigEndian.PutUint16(c, rr.Class)
-	ttl := make([]byte, 4)
-	binary.BigEndian.PutUint32(ttl, rr.TTL)
-	l := make([]byte, 2)
-	binary.BigEndian.PutUint16(l, rr.RDLENGTH)
-
-	buf = append(buf, rr.Name...)
-	buf = append(buf, t...)
-	buf = append(buf, c...)
-	buf = append(buf, ttl...)
-	buf = append(buf, l...)
-	buf = append(buf, rr.RDATA...)
-
-	return buf
+	return append(buf, c...)
 }
 
 func (a *Answer) Bytes() []byte {
-	var buf []byte
+	buf := append([]byte{}, a.Name...)
 	t := make([]byte, 2)
 	binary.BigEndian.PutUint16(t, a.Type)
+	buf = append(buf, t...)
 	c := make([]byte, 2)
 	binary.BigEndian.PutUint16(c, a.Class)
+	buf = append(buf, c...)
 	ttl := make([]byte, 4)
 	binary.BigEndian.PutUint32(ttl, a.TTL)
+	buf = append(buf, ttl...)
 	l := make([]byte, 2)
 	binary.BigEndian.PutUint16(l, a.RDLENGTH)
-
-	buf = append(buf, a.Name...)
-	buf = append(buf, t...)
-	buf = append(buf, c...)
-	buf = append(buf, ttl...)
 	buf = append(buf, l...)
-	buf = append(buf, a.RDATA...)
-
-	return buf
+	return append(buf, a.RDATA...)
 }
 
-func ParseDomain(data []byte) []byte {
-	domainByte := data[12:]
-	domain := decodeDNSPacket(domainByte)
-
-	segments := strings.Split(domain, ".")
-	var encodedDomain []byte
-	for _, segment := range segments {
-		encodedDomain = append(encodedDomain, byte(len(segment)))
-		encodedDomain = append(encodedDomain, []byte(segment)...)
-	}
-
-	// Terminate with null byte
-	encodedDomain = append(encodedDomain, 0x00)
-	return encodedDomain
-}
-
-func decodeDNSPacket(packet []byte) string {
-	var domain string
-	i := 0
-	for i < len(packet) && packet[i] != 0 {
-		labelLength := int(packet[i])
-		i++
-		if i+labelLength > len(packet) {
+func ParseDomain(data []byte, offset int) ([]byte, int) {
+	var name []byte
+	for {
+		length := int(data[offset])
+		if length == 0 {
 			break
 		}
-		domain += string(packet[i : i+labelLength])
-		i += labelLength
-		if i < len(packet) && packet[i] != 0 {
-			domain += "."
+		/*
+		   Compression Handling: The ParseDomain function is updated to check if the length byte has its two highest bits set (length&0xC0 == 0xC0). If so, it handles the name as a pointer to another part of the packet, using the lower 14 bits of the next two bytes as the new offset.
+		*/
+		if length&0xC0 == 0xC0 { // Check for compression
+			pointer := int(binary.BigEndian.Uint16(data[offset:offset+2]) & 0x3FFF)
+			compressedName, _ := ParseDomain(data, pointer)
+			name = append(name, compressedName...)
+			offset += 2
+			break
 		}
+		name = append(name, data[offset:offset+length+1]...)
+		offset += length + 1
 	}
-	return domain
+	return append(name, 0x00), offset + 1
+}
+
+func formatDomainName(name []byte) string {
+	var result string
+	for i := 0; i < len(name); {
+		length := int(name[i])
+		if length == 0 {
+			break
+		}
+		if i != 0 {
+			result += "."
+		}
+		result += string(name[i+1 : i+1+length])
+		i += length + 1
+	}
+	return result
 }

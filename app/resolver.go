@@ -45,6 +45,9 @@ func Forward(addr string, packet []byte, size int) {
 
 func parseAddr(addr string) (string, int) {
 	strSplit := strings.Split(addr, ":")
+	if len(strSplit) == 1 {
+		return strSplit[0], 0
+	}
 	port, err := strconv.Atoi(strSplit[1])
 	if err != nil {
 		log.Fatal(err)
