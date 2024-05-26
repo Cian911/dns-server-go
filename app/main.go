@@ -371,6 +371,7 @@ func main() {
 
 				queryBytes := singleQuery.Bytes()
 				fmt.Printf("Constructed query (%d bytes): %v\n", len(queryBytes), queryBytes)
+				queryBytes = stripTrailingZeroValues(queryBytes)
 
 				forwardConn, err := net.DialUDP("udp", nil, &forwardAddr)
 				if err != nil {
@@ -419,6 +420,7 @@ func main() {
 
 			responseBytes := response.Bytes()
 			fmt.Printf("Constructed response (%d bytes): %v\n", len(responseBytes), responseBytes)
+			responseBytes = stripTrailingZeroValues(responseBytes)
 
 			_, err = udpConn.WriteToUDP(responseBytes, source)
 			if err != nil {
@@ -434,4 +436,14 @@ func main() {
 			}
 		}
 	}
+}
+
+func stripTrailingZeroValues(input []byte) []byte {
+	// Find the last non-zero element
+	lastNonZeroIndex := len(input) - 1
+	for lastNonZeroIndex >= 0 && input[lastNonZeroIndex] == 0 {
+		lastNonZeroIndex--
+	}
+	// Return a slice of the array up to the last non-zero element
+	return input[:lastNonZeroIndex+1]
 }
