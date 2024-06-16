@@ -1,8 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
-	"fmt"
+	"strconv"
 )
 
 type Message struct {
@@ -57,45 +58,52 @@ type ResourceRecord struct {
 
 func NewQuery(receivedData []byte) *Message {
 	offset := 12
+	intValue, err := strconv.Atoi("1")
+	if err != nil {
+		panic(err)
+	}
 	questions := make([]Question, 0)
 	answers := make([]Answer, 0)
 
 	questionCount := int(binary.BigEndian.Uint16(receivedData[4:6]))
 	answerCount := int(binary.BigEndian.Uint16(receivedData[6:8]))
 
-	for i := 0; i < questionCount; i++ {
-		name, nextOffset := ParseDomain(receivedData, offset)
-		offset = nextOffset + 4
-		question := Question{
+	for i := uint16(0); i < uint16(questionCount); i++ {
+		nullB := bytes.Index(receivedData[offset:], []byte{0})
+		name, _ := ParseDomain(receivedData, offset)
+		dnsType := uint16(intValue)
+		class := uint16(intValue)
+		dnsTypeBytes := make([]byte, 2)
+		classBytes := make([]byte, 2)
+		binary.BigEndian.PutUint16(dnsTypeBytes, dnsType)
+		binary.BigEndian.PutUint16(classBytes, class)
+		questions = append(questions, Question{
 			Name:  name,
-			Type:  binary.BigEndian.Uint16(receivedData[nextOffset : nextOffset+2]),
-			Class: binary.BigEndian.Uint16(receivedData[nextOffset+2 : nextOffset+4]),
-		}
-		questions = append(questions, question)
+			Type:  dnsType,
+			Class: class,
+		})
+		offset += nullB + 1
+		offset += 4
 	}
 
 	for i := 0; i < answerCount; i++ {
 		name, nextOffset := ParseDomain(receivedData, offset)
-		offset = nextOffset
+		if nextOffset+10 > len(receivedData) {
+			break
+		}
 		answer := Answer{
 			Name:     name,
-			Type:     binary.BigEndian.Uint16(receivedData[offset : offset+2]),
-			Class:    binary.BigEndian.Uint16(receivedData[offset+2 : offset+4]),
-			TTL:      binary.BigEndian.Uint32(receivedData[offset+4 : offset+8]),
-			RDLENGTH: binary.BigEndian.Uint16(receivedData[offset+8 : offset+10]),
+			Type:     binary.BigEndian.Uint16(receivedData[nextOffset : nextOffset+2]),
+			Class:    binary.BigEndian.Uint16(receivedData[nextOffset+2 : nextOffset+4]),
+			TTL:      binary.BigEndian.Uint32(receivedData[nextOffset+4 : nextOffset+8]),
+			RDLENGTH: binary.BigEndian.Uint16(receivedData[nextOffset+8 : nextOffset+10]),
 		}
 
-		fmt.Printf("Name: %s, Type: %d, Class: %d, TTL: %d, RDLENGTH: %d\n", formatDomainName(answer.Name), answer.Type, answer.Class, answer.TTL, answer.RDLENGTH)
-
-		offset += 10
-
-		// if offset+int(answer.RDLENGTH) > len(receivedData) {
-		// 	log.Fatalf("RDLENGTH too large, cannot slice: offset=%d, RDLENGTH=%d, len(receivedData)=%d", offset, answer.RDLENGTH, len(receivedData))
-		// }
-
+		offset = nextOffset + 10
+		if offset+int(answer.RDLENGTH) > len(receivedData) {
+			break
+		}
 		answer.RDATA = receivedData[offset : offset+int(answer.RDLENGTH)]
-		fmt.Printf("RDATA: %v\n", answer.RDATA)
-
 		offset += int(answer.RDLENGTH)
 		answers = append(answers, answer)
 	}
@@ -173,25 +181,30 @@ func (a *Answer) Bytes() []byte {
 
 func ParseDomain(data []byte, offset int) ([]byte, int) {
 	var name []byte
+	originalOffset := offset
 	for {
-		length := int(data[offset])
-		if length == 0 {
+		if offset >= len(data) {
 			break
 		}
-		/*
-		   Compression Handling: The ParseDomain function is updated to check if the length byte has its two highest bits set (length&0xC0 == 0xC0). If so, it handles the name as a pointer to another part of the packet, using the lower 14 bits of the next two bytes as the new offset.
-		*/
+		length := int(data[offset])
+		if length == 0 {
+			offset++ // Move past the null byte
+			break
+		}
 		if length&0xC0 == 0xC0 { // Check for compression
+			if offset+1 >= len(data) {
+				return nil, offset + 2 // Return early if not enough data
+			}
 			pointer := int(binary.BigEndian.Uint16(data[offset:offset+2]) & 0x3FFF)
 			compressedName, _ := ParseDomain(data, pointer)
 			name = append(name, compressedName...)
-			offset += 2
-			break
+			offset += 2 // Move past the compression pointer
+			return name, originalOffset + 2
 		}
 		name = append(name, data[offset:offset+length+1]...)
 		offset += length + 1
 	}
-	return append(name, 0x00), offset + 1
+	return append(name, 0x00), offset
 }
 
 func formatDomainName(name []byte) string {
